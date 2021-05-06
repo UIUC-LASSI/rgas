@@ -1,0 +1,10 @@
+[package]
+name = "rgas"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bitfield = "^0.13.2"
+phf = { version = "^0.8.0", features = ["macros"] }
