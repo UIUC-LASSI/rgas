@@ -78,7 +78,7 @@ impl UCGMessageInternal {
     }
     pub fn into_asm(&self, print_decimal_data: bool) -> String {
         // Header is always a fixed format, so this one's easy.
-        let mut result = format!("{:2X}/{:1X} {:2X}/{:1X} {} {:03} ",
+        let mut result = format!("{:02X}/{:1X} {:02X}/{:1X} {} {:03}",
                             self.target,
                             self.subtarget,
                             self.source,
@@ -98,7 +98,7 @@ impl UCGMessageInternal {
             if (self.len - 1) % 2 == 0 {
                 // Even, so print in groups of 2 bytes, little-endian
                 for i in 0..(self.data.len()-1)/2 {
-                    let twobyte: u16 = (self.data[(2*i + 1) as usize] as u16) + (self.data[(2*i + 2) as usize] as u16) << 8;
+                    let twobyte: u16 = (self.data[(2*i + 1) as usize] as u16) + ((self.data[(2*i + 2) as usize] as u16) << 8);
                     if print_decimal_data {
                         result = format!("{} D{}", result, twobyte);
                     } else {
@@ -296,7 +296,7 @@ fn address_byte_from_string(s: String) -> Option<(u8, u8)> {
                 return None;
             }
         };
-        Some((s, t))
+        Some((t, s))
     }
 }
 
@@ -325,4 +325,98 @@ fn determine_integer_size(a: i128) -> usize {
             return 8;
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+    #[test]
+    fn assembly_from_struct() {
+        let mut a = UCGMessageInternal {
+            target: 3,
+            subtarget: 4,
+            source: 0x1f,
+            subsource: 7,
+            op: 1,
+            len: 2,
+            data: vec![1, 2],
+        };
+        let result = a.into_asm(false);
+        assert_eq!(result, "03/4 1F/7 RQRY 002 01 02");
+        a.data = vec![1, 0x00, 0xFF];
+        a.len = 3;
+        let result = a.into_asm(false);
+        assert_eq!(result, "03/4 1F/7 RQRY 003 01 FF00");
+        a.data = vec![1, 0x39, 0x30];
+        a.len = 3;
+        let result = a.into_asm(true);
+        assert_eq!(result, "03/4 1F/7 RQRY 003 01 D12345");
+    }
+
+    #[test]
+    fn struct_from_assembly() {
+        let test_str = "03/4 1F/7 RQRY 001 01";
+        match UCGMessageInternal::parse_asm_line(&String::from(test_str), false) {
+            Ok(m) => {
+                assert_eq!(m.target, 3);
+                assert_eq!(m.subtarget, 4);
+                assert_eq!(m.source, 0x1f);
+                assert_eq!(m.subsource, 7);
+                assert_eq!(m.op, 1);
+                assert_eq!(m.len, 1);
+                assert_eq!(m.data, vec![1]);
+            }
+            Err(s) => {
+                panic!("{}", s);
+            }
+        }
+    }
+
+    #[test]
+    fn struct_from_assembly_decimal() {
+        let test_str = "03/4 1F/7 RVAL 003 01 D10000";
+        match UCGMessageInternal::parse_asm_line(&String::from(test_str), false) {
+            Ok(m) => {
+                assert_eq!(m.target, 3);
+                assert_eq!(m.subtarget, 4);
+                assert_eq!(m.source, 0x1f);
+                assert_eq!(m.subsource, 7);
+                assert_eq!(m.op, 5);
+                assert_eq!(m.len, 3);
+                assert_eq!(m.data, vec![1, 0x10, 0x27]);
+            }
+            Err(s) => {
+                panic!("{}", s);
+            }
+        }
+    }
+
+    #[test]
+    fn struct_from_assembly_float() {
+        let test_str = "03/4 1F/7 RVAL 005 01 F202.5";
+        match UCGMessageInternal::parse_asm_line(&String::from(test_str), false) {
+            Ok(m) => {
+                assert_eq!(m.data, vec![1, 0x00, 0x80, 0x4a, 0x43]);
+            }
+            Err(s) => {
+                panic!("{}", s);
+            }
+        }
+    }
+
+    #[test]
+    fn struct_from_binary_vector_basic() {
+        let mut test_vec = vec![0x1C, 0xFF, 0x08, 0x01, 0x01];
+        if let Some(m) = UCGMessageInternal::from_byte_vec(&mut test_vec) {
+            assert_eq!(m.target, 3);
+            assert_eq!(m.subtarget, 4);
+            assert_eq!(m.source, 0x1f);
+            assert_eq!(m.subsource, 7);
+            assert_eq!(m.op, 1);
+            assert_eq!(m.len, 1);
+            assert_eq!(m.data, vec![1]);
+        } else {
+            panic!();
+        }
+    }
 }
