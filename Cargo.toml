@@ -8,3 +8,4 @@ edition = "2018"
 [dependencies]
 bitfield = "^0.13.2"
 phf = { version = "^0.8.0", features = ["macros"] }
+argparse = "^0.2.2"
