@@ -6,6 +6,7 @@ use std::fs;
 use std::io;
 use std::io::BufRead;
 use std::io::Write;
+use std::process::exit;
 
 macro_rules! check {
     ($result:expr, $message:literal) => {
@@ -93,10 +94,16 @@ fn main() {
             .add_option(&["-I", "--interactive"], StoreTrue, "Force interactive mode.");
         ap.parse_args_or_exit();
     }
+
+    
+    if outfile.len() == 0 && !hex {
+        println!("No output file specified and -x not specified.  Refusing to output binary data to the terminal.");
+        exit(1);
+    }
+
     // Enter interactive mode if forced or if no input file was given.
     let interactive_mode = force_interactive || infile.len() == 0;
     if interactive_mode {
-        //if outfile.len() == 0 {panic!("Refusing to enter interactive mode without an output file specified.")}
         println!("rgas: UCGv2 Command Grammar Assembler.");
         println!("Copyright (c) 2021 Logan Power.  All Rights Reserved.");
     }
