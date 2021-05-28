@@ -9,17 +9,21 @@ macro_rules! check {
         match($result) {Ok(val) => {val} Err(err) => panic!($message, err)};
     };
 }
+<<<<<<< HEAD
 
 macro_rules! checkNone {
     ($result:expr, $message:literal) => {
         match($result) {Some(val) => {val} None => panic!($message)};
     };
 }
+=======
+>>>>>>> 0f2630d73c01a54ca63cdb7828c618babf97a000
 
 fn main() {
     println!("Hello world!");
     let mut infile = String::new();
     let mut outfile = String::new();
+<<<<<<< HEAD
     let mut decimal = false;
 
     {
@@ -32,6 +36,18 @@ fn main() {
     let stdout;
     let mut fout: Box<dyn io::Write> = if outfile.len() == 0 {
         stdout = io::stdout();
+=======
+    
+    {
+        let mut ap=ArgumentParser::new();
+        ap.refer(&mut infile).add_argument("infile", Store, "Input file.  The decompiler, obviously, does not have an interactive mode.");
+        ap.refer(&mut outfile).add_argument("outfile", Store, "Output file.  The default is stdout.");
+        ap.parse_args_or_exit();
+    }
+
+    let fout: Box<dyn io::Write> = if outfile.len() == 0 {
+        let stdout = io::stdout();
+>>>>>>> 0f2630d73c01a54ca63cdb7828c618babf97a000
         Box::new(stdout.lock())
     } else {
         match OpenOptions::new()
@@ -53,8 +69,13 @@ fn main() {
             Ok(n) => {
                 // this seems incredibly unsafe, not passing it a length or anything.
                 // but the data has a length byte in it, so i guess i don't really care
+<<<<<<< HEAD
                 let opcode = checkNone!(rgas::UCGMessageInternal::from_byte_vec(&mut buf), "parse error");
                 fout.write(opcode.into_asm(false).as_bytes());
+=======
+                let opcode = check!(rgas::UCGMessageInternal::from_byte_vec(&mut buf), "parse error: {}");
+                fout.write(opcode.into_asm());
+>>>>>>> 0f2630d73c01a54ca63cdb7828c618babf97a000
             }
         }
     }
