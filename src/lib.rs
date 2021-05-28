@@ -272,7 +272,7 @@ fn split_address_byte(b: &u8) -> (u8, u8) {
 }
 
 fn into_address_byte(main: &u8, sub: &u8) -> u8 {
-    (main & 0b00011111) << 3 + (sub & 0b00000111)
+    (main & 0b00011111) << 3 | (sub & 0b00000111)
 }
 
 fn address_byte_from_string(s: String) -> Option<(u8, u8)> {
