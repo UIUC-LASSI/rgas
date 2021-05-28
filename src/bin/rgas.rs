@@ -96,7 +96,7 @@ fn main() {
     // Enter interactive mode if forced or if no input file was given.
     let interactive_mode = force_interactive || infile.len() == 0;
     if interactive_mode {
-        if outfile.len() == 0 {panic!("Refusing to enter interactive mode without an output file specified.")}
+        //if outfile.len() == 0 {panic!("Refusing to enter interactive mode without an output file specified.")}
         println!("rgas: UCGv2 Command Grammar Assembler.");
         println!("Copyright (c) 2021 Logan Power.  All Rights Reserved.");
     }
