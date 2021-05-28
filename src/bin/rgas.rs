@@ -47,7 +47,7 @@ macro_rules! process_file {
                         }
                         
                         check!($fout.write(&bytes), "write() call failed: {}");
-                        check!($fout.write(b"\n"), "write() call failed: {}");
+                        check!($fout.write(b"\r\n"), "write() call failed: {}");
                     }
                     Err(msg) => {
                         // the compiler returns an error with an empty string on comment lines.
