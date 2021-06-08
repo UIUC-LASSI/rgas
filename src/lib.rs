@@ -1,7 +1,15 @@
 // mod ucg
 // Basic UCGv2 encode/decode schema
+use std::convert::TryInto;
 
 mod maps;
+
+pub trait UCGMessage {
+    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Self> where Self: std::marker::Sized;
+    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Self, String> where Self: std::marker::Sized;
+    fn into_byte_vec(self) -> Vec<u8>;
+    fn into_asm(&self, print_decimal_data: bool) -> String;
+}
 
 pub struct UCGMessageInternal {
     target: u8,
@@ -16,6 +24,102 @@ pub struct UCGMessageInternal {
 pub struct UCGScriptedMessageInternal {
     rel: bool,
     ts: u32,
+    msg: UCGMessageInternal,
+}
+
+impl UCGMessage for UCGScriptedMessageInternal {
+    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Self, String> {
+        /* The first token in the string should be the timestamp, with the rest of them being
+           the message that we should pass to UCGMessageInternal.parse_asm_line().
+           To have this be simple to do, split the entire string, take the first token, and
+           then put the rest back together and pass it to the actual assembly parser. 
+        */
+        let rel; 
+        let ts: u32;
+        let mut my_line = line.clone();
+        my_line.make_ascii_uppercase();
+        let tokens: Vec<&str> = my_line.split_whitespace().collect();
+        // Parse the first token.  It needs to either begin with a number or a plus sign and then a number.
+        let ts_tok = tokens[0];
+        if ts_tok.chars().nth(0).unwrap() == '+' {
+            // This is an offset timestamp, which is the type we currently support.
+            rel = true;
+            ts = match ts_tok.split_at(1).1.parse() {
+                Ok(u) => u,
+                Err(e) => {
+                    return Err(format!("Failed to parse relative time offset \"{}\"", ts_tok));
+                }
+            };
+        } else if ts_tok.chars().nth(0).unwrap().is_digit(10) {
+            // This is an absolute timestamp, which we don't yet support.
+            rel = false;
+            // TODO: Fill this in.
+            return Err(format!("Absolute timestamp not supported in this version of rgas: \"{}\"", ts_tok));
+        } else {
+            return Err(format!("Not a vaild timestamp: \"{}\".  Did you mean to use immediate mode?", ts_tok));
+        };
+        // Re-assemble the other strings back into one string
+        tokens.remove(0);
+        let mut asm_string = String::new();
+        for tok in &tokens {
+            asm_string.push_str(*tok);
+            asm_string.push_str(" ");
+        }
+        let asm = match UCGMessageInternal::parse_asm_line(&String::from(asm_string.trim_end()), print_comments) {
+            Ok(m) => m,
+            Err(e) => {
+                return Err(e);
+            }
+        };
+        Ok(Self {
+            ts,
+            rel,
+            msg: asm
+        })
+    }
+
+    fn into_byte_vec(self) -> Vec<u8> {
+        // Turn the timestamp into bytes.
+        if self.rel {
+            self.ts |= 0x80000000;
+        }
+        // Put that first in the byte vector
+        let full_vec: Vec<u8> = self.ts.to_le_bytes().to_vec();
+        // Calculate out the rest of the bytes and put them in too
+        full_vec.append(&mut self.msg.into_byte_vec());
+        // Return this
+        full_vec
+    }
+
+    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Self> {
+        // Take the first 4 bytes off of the front, since they should be the timestamp.
+        let msg: Vec<u8> = b.split_off(4);
+        // Now b contains the timestamp and msg contains the message
+        let ts: u32 = u32::from_le_bytes(b.as_slice().try_into().unwrap());
+        let rel = ts & 0x80000000 > 0;
+        ts &= 0x7FFFFFFF; // Clear the top bit before interpretation. 
+        if let Some(m) = UCGMessageInternal::from_byte_vec(&mut msg) {
+            Some(Self {
+                msg: m,
+                rel,
+                ts
+            })
+        } else {
+            None
+        }
+    }
+
+    fn into_asm(&self, print_decimal_data: bool) -> String {
+        let mut base_string: String = if self.rel {
+            format!{"+{}s ", self.ts}
+        } else {
+            format!{"ABSOLUTE "}
+        };
+        // Append the other string onto this one
+        let asm_string = self.msg.into_asm(print_decimal_data);
+        base_string.push_str(asm_string.as_str());
+        base_string
+    }
 }
 
 impl UCGMessageInternal {
