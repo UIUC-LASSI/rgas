@@ -38,7 +38,7 @@ impl UCGMessage for UCGScriptedMessageInternal {
         let ts: u32;
         let mut my_line = line.clone();
         my_line.make_ascii_uppercase();
-        let tokens: Vec<&str> = my_line.split_whitespace().collect();
+        let mut tokens: Vec<&str> = my_line.split_whitespace().collect();
         // Parse the first token.  It needs to either begin with a number or a plus sign and then a number.
         let ts_tok = tokens[0];
         if ts_tok.chars().nth(0).unwrap() == '+' {
@@ -47,7 +47,7 @@ impl UCGMessage for UCGScriptedMessageInternal {
             ts = match ts_tok.split_at(1).1.parse() {
                 Ok(u) => u,
                 Err(e) => {
-                    return Err(format!("Failed to parse relative time offset \"{}\"", ts_tok));
+                    return Err(format!("Failed to parse relative time offset \"{}\": {}", ts_tok, e));
                 }
             };
         } else if ts_tok.chars().nth(0).unwrap().is_digit(10) {
@@ -80,11 +80,13 @@ impl UCGMessage for UCGScriptedMessageInternal {
 
     fn into_byte_vec(self) -> Vec<u8> {
         // Turn the timestamp into bytes.
-        if self.rel {
-            self.ts |= 0x80000000;
-        }
+        let ts = if self.rel {
+            self.ts | 0x80000000
+        } else {
+            self.ts
+        };
         // Put that first in the byte vector
-        let full_vec: Vec<u8> = self.ts.to_le_bytes().to_vec();
+        let mut full_vec: Vec<u8> = ts.to_le_bytes().to_vec();
         // Calculate out the rest of the bytes and put them in too
         full_vec.append(&mut self.msg.into_byte_vec());
         // Return this
@@ -93,9 +95,9 @@ impl UCGMessage for UCGScriptedMessageInternal {
 
     fn from_byte_vec(b: &mut Vec<u8>) -> Option<Self> {
         // Take the first 4 bytes off of the front, since they should be the timestamp.
-        let msg: Vec<u8> = b.split_off(4);
+        let mut msg: Vec<u8> = b.split_off(4);
         // Now b contains the timestamp and msg contains the message
-        let ts: u32 = u32::from_le_bytes(b.as_slice().try_into().unwrap());
+        let mut ts: u32 = u32::from_le_bytes(b.as_slice().try_into().unwrap());
         let rel = ts & 0x80000000 > 0;
         ts &= 0x7FFFFFFF; // Clear the top bit before interpretation. 
         if let Some(m) = UCGMessageInternal::from_byte_vec(&mut msg) {
@@ -122,20 +124,8 @@ impl UCGMessage for UCGScriptedMessageInternal {
     }
 }
 
-impl UCGMessageInternal {
-    pub fn op_to_text(&self) -> String {
-        String::from(maps::NUM_TO_OPCODE[self.op as usize])
-    }
-    pub fn set_op_from_text(&mut self, t: &str) -> bool {
-        // This is a very long way to check to see if the key is in the map
-        if maps::OPCODE_TO_NUM.keys().find(|&&x| x == t).is_some() {
-            self.op = maps::OPCODE_TO_NUM[t];
-            true
-        } else {
-            false
-        }
-    }
-    pub fn from_byte_vec(b: &mut Vec<u8>) -> Option<Self> {
+impl UCGMessage for UCGMessageInternal{
+    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Self> {
         // Byte order in the header is the following: 
         // 1. T/ST
         // 2. S/SS
@@ -170,7 +160,8 @@ impl UCGMessageInternal {
             })
         }
     }
-    pub fn into_byte_vec(mut self) -> Vec<u8> {
+
+    fn into_byte_vec(mut self) -> Vec<u8> {
         let mut result = Vec::new();
         result.push(into_address_byte(&self.target, &self.subtarget));
         result.push(into_address_byte(&self.source, &self.subsource));
@@ -180,7 +171,7 @@ impl UCGMessageInternal {
         result.append(&mut self.data);
         result
     }
-    pub fn into_asm(&self, print_decimal_data: bool) -> String {
+    fn into_asm(&self, print_decimal_data: bool) -> String {
         // Header is always a fixed format, so this one's easy.
         let mut result = format!("{:02X}/{:1X} {:02X}/{:1X} {} {:03}",
                             self.target,
@@ -223,8 +214,9 @@ impl UCGMessageInternal {
         // Append a newline to result
         format!("{}{}", result, '\n');
         result
-    }
-    pub fn parse_asm_line(line: &String, print_comments: bool) -> Result<Self, String> {
+    } 
+    
+    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Self, String> {
         let mut result: Self = Self {
             target: 0,
             subtarget: 0,
@@ -366,6 +358,21 @@ impl UCGMessageInternal {
             return Err(format!("Data arguments of size {} exceed payload length {}.", result.data.len(), result.len));
         }
         Ok(result)
+    }
+}
+
+impl UCGMessageInternal {
+    pub fn op_to_text(&self) -> String {
+        String::from(maps::NUM_TO_OPCODE[self.op as usize])
+    }
+    pub fn set_op_from_text(&mut self, t: &str) -> bool {
+        // This is a very long way to check to see if the key is in the map
+        if maps::OPCODE_TO_NUM.keys().find(|&&x| x == t).is_some() {
+            self.op = maps::OPCODE_TO_NUM[t];
+            true
+        } else {
+            false
+        }
     }
 }
 
