@@ -1,14 +1,16 @@
 // mod ucg
 // Basic UCGv2 encode/decode schema
 use std::convert::TryInto;
+use std::any::Any;
 
 mod maps;
 
 pub trait UCGMessage {
-    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Self> where Self: std::marker::Sized;
-    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Self, String> where Self: std::marker::Sized;
-    fn into_byte_vec(self) -> Vec<u8>;
+    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Box<dyn UCGMessage>> where Self: Sized;
+    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Box<dyn UCGMessage>, String> where Self: Sized;
+    fn into_byte_vec(&self) -> Vec<u8>;
     fn into_asm(&self, print_decimal_data: bool) -> String;
+    fn as_any(&self) -> &dyn Any;
 }
 
 pub struct UCGMessageInternal {
@@ -24,11 +26,11 @@ pub struct UCGMessageInternal {
 pub struct UCGScriptedMessageInternal {
     rel: bool,
     ts: u32,
-    msg: UCGMessageInternal,
+    msg: Box<dyn UCGMessage>,
 }
 
 impl UCGMessage for UCGScriptedMessageInternal {
-    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Self, String> {
+    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Box<dyn UCGMessage>, String> {
         /* The first token in the string should be the timestamp, with the rest of them being
            the message that we should pass to UCGMessageInternal.parse_asm_line().
            To have this be simple to do, split the entire string, take the first token, and
@@ -71,14 +73,14 @@ impl UCGMessage for UCGScriptedMessageInternal {
                 return Err(e);
             }
         };
-        Ok(Self {
+        Ok(Box::new(Self {
             ts,
             rel,
             msg: asm
-        })
+        }))
     }
 
-    fn into_byte_vec(self) -> Vec<u8> {
+    fn into_byte_vec(&self) -> Vec<u8> {
         // Turn the timestamp into bytes.
         let ts = if self.rel {
             self.ts | 0x80000000
@@ -88,12 +90,13 @@ impl UCGMessage for UCGScriptedMessageInternal {
         // Put that first in the byte vector
         let mut full_vec: Vec<u8> = ts.to_le_bytes().to_vec();
         // Calculate out the rest of the bytes and put them in too
-        full_vec.append(&mut self.msg.into_byte_vec());
+        let mut asm_vec = self.msg.into_byte_vec();
+        full_vec.append(&mut asm_vec);
         // Return this
         full_vec
     }
 
-    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Self> {
+    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Box<dyn UCGMessage>> {
         // Take the first 4 bytes off of the front, since they should be the timestamp.
         let mut msg: Vec<u8> = b.split_off(4);
         // Now b contains the timestamp and msg contains the message
@@ -101,11 +104,12 @@ impl UCGMessage for UCGScriptedMessageInternal {
         let rel = ts & 0x80000000 > 0;
         ts &= 0x7FFFFFFF; // Clear the top bit before interpretation. 
         if let Some(m) = UCGMessageInternal::from_byte_vec(&mut msg) {
-            Some(Self {
-                msg: m,
+            let smsg = UCGScriptedMessageInternal {
                 rel,
-                ts
-            })
+                ts,
+                msg: m
+            };
+            Some(Box::new(smsg))
         } else {
             None
         }
@@ -122,10 +126,14 @@ impl UCGMessage for UCGScriptedMessageInternal {
         base_string.push_str(asm_string.as_str());
         base_string
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl UCGMessage for UCGMessageInternal{
-    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Self> {
+    fn from_byte_vec(b: &mut Vec<u8>) -> Option<Box<dyn UCGMessage>> {
         // Byte order in the header is the following: 
         // 1. T/ST
         // 2. S/SS
@@ -149,7 +157,7 @@ impl UCGMessage for UCGMessageInternal{
         if op > maps::MAX_OPCODE {
             None
         } else {
-            Some(Self {
+            Some(Box::new(Self {
                 target,
                 subtarget,
                 source,
@@ -157,18 +165,18 @@ impl UCGMessage for UCGMessageInternal{
                 op,
                 len,
                 data
-            })
+            }))
         }
     }
 
-    fn into_byte_vec(mut self) -> Vec<u8> {
+    fn into_byte_vec(&self) -> Vec<u8> {
         let mut result = Vec::new();
         result.push(into_address_byte(&self.target, &self.subtarget));
         result.push(into_address_byte(&self.source, &self.subsource));
         let lrlen: u8 = (self.len & 0xFF00) as u8; // Get the upper 3 bits of len
         result.push(into_address_byte(&self.op, &lrlen));
         result.push(self.len as u8);
-        result.append(&mut self.data);
+        result.append(&mut self.data.clone());
         result
     }
     fn into_asm(&self, print_decimal_data: bool) -> String {
@@ -216,7 +224,7 @@ impl UCGMessage for UCGMessageInternal{
         result
     } 
     
-    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Self, String> {
+    fn parse_asm_line(line: &String, print_comments: bool) -> Result<Box<dyn UCGMessage>, String> {
         let mut result: Self = Self {
             target: 0,
             subtarget: 0,
@@ -357,7 +365,11 @@ impl UCGMessage for UCGMessageInternal{
         if result.data.len() > result.len as usize {
             return Err(format!("Data arguments of size {} exceed payload length {}.", result.data.len(), result.len));
         }
-        Ok(result)
+        Ok(Box::new(result))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -469,6 +481,7 @@ mod tests {
         let test_str = "03/4 1F/7 RQRY 001 01";
         match UCGMessageInternal::parse_asm_line(&String::from(test_str), false) {
             Ok(m) => {
+                let m: &UCGMessageInternal = m.as_any().downcast_ref::<UCGMessageInternal>().unwrap();
                 assert_eq!(m.target, 3);
                 assert_eq!(m.subtarget, 4);
                 assert_eq!(m.source, 0x1f);
@@ -488,6 +501,7 @@ mod tests {
         let test_str = "03/4 1F/7 RVAL 003 01 D10000";
         match UCGMessageInternal::parse_asm_line(&String::from(test_str), false) {
             Ok(m) => {
+                let m: &UCGMessageInternal = m.as_any().downcast_ref::<UCGMessageInternal>().unwrap();
                 assert_eq!(m.target, 3);
                 assert_eq!(m.subtarget, 4);
                 assert_eq!(m.source, 0x1f);
@@ -507,6 +521,7 @@ mod tests {
         let test_str = "03/4 1F/7 RVAL 005 01 F202.5";
         match UCGMessageInternal::parse_asm_line(&String::from(test_str), false) {
             Ok(m) => {
+                let m: &UCGMessageInternal = m.as_any().downcast_ref::<UCGMessageInternal>().unwrap();
                 assert_eq!(m.data, vec![1, 0x00, 0x80, 0x4a, 0x43]);
             }
             Err(s) => {
@@ -519,6 +534,7 @@ mod tests {
     fn struct_from_binary_vector_basic() {
         let mut test_vec = vec![0x1C, 0xFF, 0x08, 0x01, 0x01];
         if let Some(m) = UCGMessageInternal::from_byte_vec(&mut test_vec) {
+            let m: &UCGMessageInternal = m.as_any().downcast_ref::<UCGMessageInternal>().unwrap();
             assert_eq!(m.target, 3);
             assert_eq!(m.subtarget, 4);
             assert_eq!(m.source, 0x1f);

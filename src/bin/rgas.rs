@@ -7,6 +7,7 @@ use std::io;
 use std::io::BufRead;
 use std::io::Write;
 use std::process::exit;
+use rgas::UCGMessage;
 
 macro_rules! check {
     ($result:expr, $message:literal) => {
@@ -30,13 +31,18 @@ fn test_parse(line: &String, _verbose:bool) -> Result<Vec<u8>, String> {
 }
 
 macro_rules! process_file {
-    ($fin:expr, $fout:expr, $verbose:expr, $hex:expr, $interactive:expr) => {
+    ($fin:expr, $fout:expr, $verbose:expr, $hex:expr, $interactive:expr, $immediate:expr) => {
     let mut lineno = 1;
     for line in $fin.lines() {
         match(line) {
             Err(err) => {panic!("readline() failed: {}", err)}
             Ok(line) => {
-                match(rgas::UCGMessageInternal::parse_asm_line(&line, false)) {
+                let res: Result<Box<dyn UCGMessage>, String> = if $immediate {
+                    rgas::UCGMessageInternal::parse_asm_line(&line, false)
+                } else {
+                    rgas::UCGScriptedMessageInternal::parse_asm_line(&line, false)
+                };
+                match(res) {
                 //match(test_parse(&line, $verbose)) {
                     Ok(bytecode) => {
                         let mut bytes = bytecode.into_byte_vec();
@@ -83,7 +89,7 @@ fn main() {
         ap.refer(&mut verbose)
             .add_option(&["-v", "--verbose"], StoreTrue, "Be more verbose.");
         ap.refer(&mut immediate)
-            .add_option(&["-i", "--immediate"], StoreTrue, "Use UCGv2 immediate mode.");
+            .add_option(&["-m", "--immediate"], StoreTrue, "Use UCGv2 immediate mode.");
         ap.refer(&mut hex)
             .add_option(&["-x", "--hex"], StoreTrue, "Output hexadecimal strings instead of binary.");
         ap.refer(&mut outfile)
@@ -105,7 +111,7 @@ fn main() {
     let interactive_mode = force_interactive || infile.len() == 0;
     if interactive_mode {
         println!("rgas: UCGv2 Command Grammar Assembler.");
-        println!("Copyright (c) 2021 Logan Power.  All Rights Reserved.");
+        println!("Copyright (c) 2021 Logan Power and Sean Worley.  All Rights Reserved.");
     }
     if verbose {
         println!("[:] Increased verbosity.");
@@ -148,7 +154,7 @@ fn main() {
             // If we are in interactive mode, use rustyline and read lines in from the user.
             // TODO actually use rustyline.
             let stdin = io::stdin();
-            process_file!(stdin.lock(), fout, verbose, hex, true);
+            process_file!(stdin.lock(), fout, verbose, hex, true, immediate);
         } else {
             // If we aren't, read lines in from the file.
 
@@ -157,7 +163,7 @@ fn main() {
             // the me of 5 years ago would have taken one look at this and dismissed Rust out of hand
             match fs::File::open(infile) {
                 Ok(file) => {
-                    process_file!(io::BufReader::new(file), fout, verbose, hex, false);
+                    process_file!(io::BufReader::new(file), fout, verbose, hex, false, immediate);
                     println!("Processing the file completed successfully.");
                 }
                 Err(msg) => {
