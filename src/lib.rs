@@ -10,6 +10,7 @@ pub trait UCGMessage {
     fn parse_asm_line(line: &String, print_comments: bool) -> Result<Box<dyn UCGMessage>, String> where Self: Sized;
     fn into_byte_vec(&self) -> Vec<u8>;
     fn into_asm(&self, print_decimal_data: bool) -> String;
+    fn get_time(&self) -> &u32;
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -129,6 +130,10 @@ impl UCGMessage for UCGScriptedMessageInternal {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn get_time(&self) -> &u32 {
+        &self.ts
     }
 }
 
@@ -370,6 +375,10 @@ impl UCGMessage for UCGMessageInternal{
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn get_time(&self) -> &u32 {
+        &0
     }
 }
 

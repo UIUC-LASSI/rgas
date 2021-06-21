@@ -54,24 +54,20 @@ fn main() {
         match fin.read_until(0x0A, &mut buf) {
             Err(msg) => {panic!("Error reading line: {}", msg)}
             Ok(0) => {break}
-            Ok(n) => {
+            Ok(_) => {
                 // this seems incredibly unsafe, not passing it a length or anything.
                 // but the data has a length byte in it, so i guess i don't really care
-                let mut blank = false;
                 buf.pop();
                 buf.pop();
                 if verbose {
                     println!("[!] Parsing binary string {:x?}", buf);
                 }
-                let opcode = if immediate {
-                    checkNone!(rgas::UCGMessageInternal::from_byte_vec(&mut buf), "Parse error")
-                } else {
-                    if buf.len() <= 4{
-                        blank = true;
-                    }
-                    checkNone!(rgas::UCGScriptedMessageInternal::from_byte_vec(&mut buf), "Parse error")
-                };
-                if !blank{
+                if buf.len() > 4 {
+                    let opcode = if immediate {
+                        checkNone!(rgas::UCGMessageInternal::from_byte_vec(&mut buf), "Parse error")
+                    } else {
+                        checkNone!(rgas::UCGScriptedMessageInternal::from_byte_vec(&mut buf), "Parse error")
+                    };
                     check!(fout.write(opcode.into_asm(decimal).as_bytes()), "write() call failed: {}");
                     check!(fout.write(b"\n"), "write() call failed: {}");
                 }

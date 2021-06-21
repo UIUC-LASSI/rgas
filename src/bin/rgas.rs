@@ -1,6 +1,6 @@
 extern crate rgas;
 extern crate argparse;
-use argparse::{ArgumentParser, StoreTrue, Store};
+use argparse::{ArgumentParser, StoreTrue, Store, Print};
 use std::io::prelude::*;
 use std::fs;
 use std::io;
@@ -31,12 +31,16 @@ fn test_parse(line: &String, _verbose:bool) -> Result<Vec<u8>, String> {
 }
 
 macro_rules! process_file {
-    ($fin:expr, $fout:expr, $verbose:expr, $hex:expr, $interactive:expr, $immediate:expr) => {
+    ($fin:expr, $fout:expr, $verbose:expr, $hex:expr, $interactive:expr, $immediate:expr, $timedest:expr) => {
     let mut lineno = 1;
     for line in $fin.lines() {
         match(line) {
             Err(err) => {panic!("readline() failed: {}", err)}
             Ok(line) => {
+                if line.chars().nth(0) == Some('#') {
+                    // This line is a comment
+                    continue
+                }
                 let res: Result<Box<dyn UCGMessage>, String> = if $immediate {
                     rgas::UCGMessageInternal::parse_asm_line(&line, false)
                 } else {
@@ -45,6 +49,9 @@ macro_rules! process_file {
                 match(res) {
                 //match(test_parse(&line, $verbose)) {
                     Ok(bytecode) => {
+                        if !$immediate {
+                            *$timedest = *$timedest + bytecode.get_time();
+                        }
                         let mut bytes = bytecode.into_byte_vec();
                         //let mut bytes = bytecode;
                         
@@ -83,6 +90,7 @@ fn main() {
     let mut force_interactive = false;
     let mut outfile = String::new();
     let mut infile = String::new();
+    let mut record_time = false;
     {
         let mut ap = ArgumentParser::new();
         ap.set_description("Command grammar assembler for UCGv2.");
@@ -98,6 +106,10 @@ fn main() {
             .add_option(&["-i", "--infile"], Store, "Input assembly file to read from.  Forces interactive mode if not provided.");
         ap.refer(&mut force_interactive)
             .add_option(&["-I", "--interactive"], StoreTrue, "Force interactive mode.");
+        ap.refer(&mut record_time)
+            .add_option(&["-t", "--time"], StoreTrue, "Record total time spent and print it at the end.");
+        ap.add_option(&["-V", "--version"],
+            Print("Version ".to_string() + env!("CARGO_PKG_VERSION")+"\n"), "Show version");
         ap.parse_args_or_exit();
     }
 
@@ -149,12 +161,15 @@ fn main() {
         // For some reason that is utterly beyond me, you can't invoke the lines() method on a trait object, because it has to be sized.
         // So I used a macro to process input.
         // Ah well, I needed a special case to setup rustyline anyway.
-
+        let mut time_total = 0;
         if interactive_mode {
             // If we are in interactive mode, use rustyline and read lines in from the user.
             // TODO actually use rustyline.
             let stdin = io::stdin();
-            process_file!(stdin.lock(), fout, verbose, hex, true, immediate);
+            process_file!(stdin.lock(), fout, verbose, hex, true, immediate, &mut time_total);
+            if !immediate && record_time {
+                println!("Total execution time: {} seconds.", time_total);
+            }
         } else {
             // If we aren't, read lines in from the file.
 
@@ -163,8 +178,11 @@ fn main() {
             // the me of 5 years ago would have taken one look at this and dismissed Rust out of hand
             match fs::File::open(infile) {
                 Ok(file) => {
-                    process_file!(io::BufReader::new(file), fout, verbose, hex, false, immediate);
+                    process_file!(io::BufReader::new(file), fout, verbose, hex, false, immediate, &mut time_total);
                     println!("Processing the file completed successfully.");
+                    if !immediate && record_time {
+                        println!("Total execution time: {} seconds.", time_total);
+                    }
                 }
                 Err(msg) => {
                     panic!("Unable to open input file: {}", msg);
